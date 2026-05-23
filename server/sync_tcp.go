@@ -5,25 +5,40 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
 
 	"github.com/MonarchRyuzaki/redis-go/config"
+	"github.com/MonarchRyuzaki/redis-go/core"
 )
 
-func readCommand(c net.Conn) (string, error) {
+func readCommand(c net.Conn) (*core.RedisCmd, error) {
 	// TODO: Max read in one shot is 512 bytes
 	// To allow input > 512 bytes, then repeated read until
 	// we get EOF or designated delimiter
 	var buf []byte = make([]byte, 512)
 	n, err := c.Read(buf[:])
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(buf[:n]), nil
+	tokens, _, err := core.Unmarshal(buf[:n])
+	if err != nil {
+		return nil, err
+	}
+
+	args := make([]string, 0, len(tokens.Array)-1)
+	for _, v := range tokens.Array[1:] {
+		args = append(args, v.Bulk)
+	}
+
+	return &core.RedisCmd{
+		Cmd:  strings.ToUpper(tokens.Array[0].Bulk),
+		Args: args,
+	}, nil
 }
 
-func respond(cmd string, c net.Conn) error {
-	if _, err := c.Write([]byte(cmd)); err != nil {
-		return err
+func respond(cmd *core.RedisCmd, c net.Conn) error {
+	if err := core.EvalAndRespond(cmd, c); err != nil {
+		c.Write(core.Marshal(core.Value{Type: core.ERROR, Str: err.Error()}))
 	}
 	return nil
 }
