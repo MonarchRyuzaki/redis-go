@@ -11,7 +11,7 @@ import (
 	"github.com/MonarchRyuzaki/redis-go/core"
 )
 
-func readCommand(c net.Conn) (*core.RedisCmd, error) {
+func readCommand(c io.ReadWriter) (*core.RedisCmd, error) {
 	// TODO: Max read in one shot is 512 bytes
 	// To allow input > 512 bytes, then repeated read until
 	// we get EOF or designated delimiter
@@ -36,7 +36,7 @@ func readCommand(c net.Conn) (*core.RedisCmd, error) {
 	}, nil
 }
 
-func respond(cmd *core.RedisCmd, c net.Conn) error {
+func respond(cmd *core.RedisCmd, c io.ReadWriter) error {
 	if err := core.EvalAndRespond(cmd, c); err != nil {
 		c.Write(core.Marshal(core.Value{Type: core.ERROR, Str: err.Error()}))
 	}
@@ -51,14 +51,16 @@ func RunSyncTCPServer() {
 	// listening to the configured host:port
 	lsnr, err := net.Listen("tcp", config.Host+":"+strconv.Itoa(config.Port))
 	if err != nil {
-		panic(err)
+		log.Println(err)
+		return
 	}
 
 	for {
 		// blocking call: waiting for the new client to connect
 		c, err := lsnr.Accept()
 		if err != nil {
-			panic(err)
+			log.Println(err)
+			return
 		}
 
 		// increment the number of concurrent clients

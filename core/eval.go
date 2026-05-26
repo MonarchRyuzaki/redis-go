@@ -2,11 +2,11 @@ package core
 
 import (
 	"errors"
+	"io"
 	"log"
-	"net"
 )
 
-func EvalAndRespond(cmd *RedisCmd, c net.Conn) error {
+func EvalAndRespond(cmd *RedisCmd, c io.ReadWriter) error {
 	log.Println("command: ", cmd)
 	switch cmd.Cmd {
 	case "PING":
@@ -16,16 +16,16 @@ func EvalAndRespond(cmd *RedisCmd, c net.Conn) error {
 	}
 }
 
-func evalPing(args []string, c net.Conn) error {
+func evalPing(args []string, c io.ReadWriter) error {
 	var b []byte
 
 	if len(args) >= 2 {
 		return errors.New("ERR wrong number of arguments for 'ping' command")
 	}
 
-	if len(args) == 0{
+	if len(args) == 0 {
 		b = Marshal(Value{Type: STRING, Str: "PONG"})
-		} else {
+	} else {
 		b = Marshal(Value{Type: STRING, Str: args[0]})
 	}
 
