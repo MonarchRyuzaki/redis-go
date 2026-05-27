@@ -11,7 +11,7 @@ import (
 	"github.com/MonarchRyuzaki/redis-go/core"
 )
 
-func readCommand(c io.ReadWriter) (*core.RedisCmd, error) {
+func readCommand(c io.ReadWriter) (core.RedisCmds, error) {
 	// TODO: Max read in one shot is 512 bytes
 	// To allow input > 512 bytes, then repeated read until
 	// we get EOF or designated delimiter
@@ -20,27 +20,34 @@ func readCommand(c io.ReadWriter) (*core.RedisCmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	tokens, _, err := core.Unmarshal(buf[:n])
+	tokensArray, _, err := core.UnmarshalMany(buf[:n])
 	if err != nil {
 		return nil, err
 	}
 
-	args := make([]string, 0, len(tokens.Array)-1)
-	for _, v := range tokens.Array[1:] {
-		args = append(args, v.Bulk)
+	var args []string
+
+	redisCmds := make(core.RedisCmds, 0, len(tokensArray))
+	for i := 0; i < len(tokensArray); i++ {
+		if len(tokensArray[i].Array) == 0 {
+			continue
+		}
+		args = make([]string, 0, len(tokensArray[i].Array))
+		for _, v := range tokensArray[i].Array[1:] {
+			args = append(args, v.Bulk)
+
+		}
+		redisCmds = append(redisCmds, &core.RedisCmd{
+			Cmd:  strings.ToUpper(tokensArray[i].Array[0].Bulk),
+			Args: args,
+		})
 	}
 
-	return &core.RedisCmd{
-		Cmd:  strings.ToUpper(tokens.Array[0].Bulk),
-		Args: args,
-	}, nil
+	return redisCmds, nil
 }
 
-func respond(cmd *core.RedisCmd, c io.ReadWriter) error {
-	if err := core.EvalAndRespond(cmd, c); err != nil {
-		c.Write(core.Marshal(core.Value{Type: core.ERROR, Str: err.Error()}))
-	}
-	return nil
+func respond(cmds core.RedisCmds, c io.ReadWriter) {
+	core.EvalAndRespond(cmds, c)
 }
 
 func RunSyncTCPServer() {
@@ -69,7 +76,7 @@ func RunSyncTCPServer() {
 
 		for {
 			// over the socket, continuously read the command and print it out
-			cmd, err := readCommand(c)
+			cmds, err := readCommand(c)
 			if err != nil {
 				c.Close()
 				con_clients -= 1
@@ -79,7 +86,7 @@ func RunSyncTCPServer() {
 				}
 				log.Println("err", err)
 			}
-			respond(cmd, c)
+			respond(cmds, c)
 		}
 	}
 }

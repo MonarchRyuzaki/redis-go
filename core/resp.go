@@ -84,6 +84,20 @@ func Unmarshal(data []byte) (Value, int, error) {
 	}
 }
 
+func UnmarshalMany(data []byte) ([]Value, int, error) {
+	var values []Value
+	totalRead := 0
+	for totalRead < len(data) {
+		v, n, err := Unmarshal(data[totalRead:])
+		if err != nil {
+			return values, totalRead, err
+		}
+		values = append(values, v)
+		totalRead += n
+	}
+	return values, totalRead, nil
+}
+
 func readLine(data []byte) ([]byte, int, error) {
 	for i := 0; i < len(data)-1; i++ {
 		if data[i] == '\r' && data[i+1] == '\n' {

@@ -1,53 +1,56 @@
 package core
 
 import (
-	"errors"
+	"bytes"
 	"io"
 	"log"
 	"strconv"
 	"time"
 )
 
-func EvalAndRespond(cmd *RedisCmd, c io.ReadWriter) error {
-	log.Println("command: ", cmd)
-	switch cmd.Cmd {
-	case "PING":
-		return evalPING(cmd.Args, c)
-	case "SET":
-		return evalSET(cmd.Args, c)
-	case "GET":
-		return evalGET(cmd.Args, c)
-	case "TTL":
-		return evalTTL(cmd.Args, c)
-	case "DEL":
-		return evalDEL(cmd.Args, c)
-	case "EXPIRE":
-		return evalEXPIRE(cmd.Args, c)
-	default:
-		return evalPING(cmd.Args, c)
+func EvalAndRespond(cmds RedisCmds, c io.ReadWriter) {
+
+	var response []byte
+	buf := bytes.NewBuffer(response)
+
+	for _, cmd := range cmds {
+		log.Println("command: ", cmd)
+		switch cmd.Cmd {
+		case "PING":
+			buf.Write(evalPING(cmd.Args))
+		case "SET":
+			buf.Write(evalSET(cmd.Args))
+		case "GET":
+			buf.Write(evalGET(cmd.Args))
+		case "TTL":
+			buf.Write(evalTTL(cmd.Args))
+		case "DEL":
+			buf.Write(evalDEL(cmd.Args))
+		case "EXPIRE":
+			buf.Write(evalEXPIRE(cmd.Args))
+		default:
+			buf.Write(evalPING(cmd.Args))
+		}
 	}
+
+	c.Write(buf.Bytes())
 }
 
-func evalPING(args []string, c io.ReadWriter) error {
-	var b []byte
-
+func evalPING(args []string) []byte {
 	if len(args) >= 2 {
-		return errors.New("ERR wrong number of arguments for 'ping' command")
+		return Marshal(Value{Type: ERROR, Str: "ERR wrong number of arguments for 'ping' command"})
 	}
 
 	if len(args) == 0 {
-		b = Marshal(Value{Type: STRING, Str: "PONG"})
+		return Marshal(Value{Type: STRING, Str: "PONG"})
 	} else {
-		b = Marshal(Value{Type: STRING, Str: args[0]})
+		return Marshal(Value{Type: STRING, Str: args[0]})
 	}
-
-	_, err := c.Write(b)
-	return err
 }
 
-func evalSET(args []string, c io.ReadWriter) error {
+func evalSET(args []string) []byte {
 	if len(args) <= 1 {
-		return errors.New("ERR wrong number of arguments for 'set' command")
+		return Marshal(Value{Type: ERROR, Str: "ERR wrong number of arguments for 'set' command"})
 	}
 
 	var key, value string
@@ -60,41 +63,38 @@ func evalSET(args []string, c io.ReadWriter) error {
 		case "EX", "ex":
 			i++
 			if i == len(args) {
-				return errors.New("ERR syntax error")
+				return Marshal(Value{Type: ERROR, Str: "ERR syntax error"})
 			}
 
 			exDurationSec, err := strconv.ParseInt(args[i], 10, 64)
 			if err != nil {
-				return errors.New("ERR value is not an integer or out of range")
+				return Marshal(Value{Type: ERROR, Str: "ERR value is not an integer or out of range"})
 			}
 
 			exDurationMs = exDurationSec * 1000
 		default:
-			return errors.New("ERR Syntax error")
+			return Marshal(Value{Type: ERROR, Str: "ERR Syntax error"})
 		}
 	}
 
 	Put(key, NewObj(value, exDurationMs))
-	c.Write(Marshal(Value{Type: STRING, Str: "OK"}))
-	return nil
+	return Marshal(Value{Type: STRING, Str: "OK"})
 }
 
-func evalGET(args []string, c io.ReadWriter) error {
+func evalGET(args []string) []byte {
 	if len(args) != 1 {
-		return errors.New("ERR wrong number of arguments for 'get' command")
+		return Marshal(Value{Type: ERROR, Str: "ERR wrong number of arguments for 'get' command"})
 	}
 	var key string = args[0]
 
 	obj := Get(key)
 
 	if obj == nil {
-		c.Write(Marshal(Value{Type: NULL_BULK}))
-		return nil
+		return Marshal(Value{Type: NULL_BULK})
 	}
 
 	if obj.ExpiresAt != -1 && obj.ExpiresAt <= time.Now().UnixMilli() {
-		c.Write(Marshal(Value{Type: NULL_BULK}))
-		return nil
+		return Marshal(Value{Type: NULL_BULK})
 	}
 
 	var bulk string
@@ -107,14 +107,12 @@ func evalGET(args []string, c io.ReadWriter) error {
 		bulk = ""
 	}
 
-	c.Write(Marshal(Value{Type: BULK, Bulk: bulk}))
-
-	return nil
+	return Marshal(Value{Type: BULK, Bulk: bulk})
 }
 
-func evalTTL(args []string, c io.ReadWriter) error {
+func evalTTL(args []string) []byte {
 	if len(args) != 1 {
-		return errors.New("ERR wrong number of arguments for 'ttl' command")
+		return Marshal(Value{Type: ERROR, Str: "ERR wrong number of arguments for 'ttl' command"})
 	}
 
 	var key string = args[0]
@@ -122,29 +120,26 @@ func evalTTL(args []string, c io.ReadWriter) error {
 	obj := Get(key)
 
 	if obj == nil {
-		c.Write(Marshal(Value{Type: INTEGER, Num: -2}))
-		return nil
+		return Marshal(Value{Type: INTEGER, Num: -2})
 	}
 
 	if obj.ExpiresAt == -1 {
-		c.Write(Marshal(Value{Type: INTEGER, Num: -1}))
-		return nil
+		return Marshal(Value{Type: INTEGER, Num: -1})
 
 	}
 
 	durationMs := obj.ExpiresAt - time.Now().UnixMilli()
 
 	if durationMs < 0 {
-		c.Write(Marshal(Value{Type: INTEGER, Num: -2}))
-		return nil
+		return Marshal(Value{Type: INTEGER, Num: -2})
+
 	}
 
-	c.Write(Marshal(Value{Type: INTEGER, Num: int(durationMs / 1000)}))
+	return Marshal(Value{Type: INTEGER, Num: int(durationMs / 1000)})
 
-	return nil
 }
 
-func evalDEL(args []string, c io.ReadWriter) error {
+func evalDEL(args []string) []byte {
 	var countDeleted int = 0
 	for _, key := range args {
 		if ok := Del(key); ok {
@@ -152,32 +147,30 @@ func evalDEL(args []string, c io.ReadWriter) error {
 		}
 	}
 
-	c.Write(Marshal(Value{Type: INTEGER, Num: countDeleted}))
-	return nil
+	return Marshal(Value{Type: INTEGER, Num: countDeleted})
 }
 
-func evalEXPIRE(args []string, c io.ReadWriter) error {
+func evalEXPIRE(args []string) []byte {
 	if len(args) <= 1 {
-		return errors.New("ERR wrong number of arguments for 'expire' command")
+		Marshal(Value{Type: ERROR, Str: "ERR wrong number of arguments for 'expire' command"})
 	}
 
 	var key string = args[0]
 	exDurationSec, err := strconv.ParseInt(args[1], 10, 64)
 	if err != nil {
-		return errors.New("ERR value is not an integer or out of range")
+		Marshal(Value{Type: ERROR, Str: "ERR value is not an integer or out of range"})
 	}
 
 	obj := Get(key)
 
 	// 0 if the timeout was not set. e.g. key doesn't exist, or operation skipped due to the provided arguments
 	if obj == nil {
-		c.Write(Marshal(Value{Type: INTEGER, Num: 0}))
-		return nil
+		return Marshal(Value{Type: INTEGER, Num: 0})
+
 	}
-	
+
 	obj.ExpiresAt = time.Now().UnixMilli() + exDurationSec*1000
-	
+
 	// 1 if the timeout was set.
-	c.Write(Marshal(Value{Type: INTEGER, Num: 1}))
-	return nil
+	return Marshal(Value{Type: INTEGER, Num: 1})
 }

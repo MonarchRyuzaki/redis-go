@@ -100,3 +100,17 @@ func TestArrayDecode(t *testing.T) {
 		}
 	}
 }
+
+func TestUnmarshalMany(t *testing.T) {
+	data := []byte("*2\r\n$3\r\nGET\r\n$1\r\na\r\n*3\r\n$3\r\nSET\r\n$1\r\nb\r\n$1\r\n1\r\n")
+	values, n, err := core.UnmarshalMany(data)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if n != len(data) {
+		t.Errorf("expected to read %d bytes, read %d", len(data), n)
+	}
+	if len(values) != 2 {
+		t.Errorf("expected 2 values, got %d", len(values))
+	}
+}
