@@ -28,6 +28,8 @@ func EvalAndRespond(cmds RedisCmds, c io.ReadWriter) {
 			buf.Write(evalDEL(cmd.Args))
 		case "EXPIRE":
 			buf.Write(evalEXPIRE(cmd.Args))
+		case "BGREWRITEAOF":
+			buf.Write(evalBGREWRITEAOF(cmd.Args))
 		default:
 			buf.Write(evalPING(cmd.Args))
 		}
@@ -173,4 +175,10 @@ func evalEXPIRE(args []string) []byte {
 
 	// 1 if the timeout was set.
 	return Marshal(Value{Type: INTEGER, Num: 1})
+}
+
+// TODO: Make it async by forking a new process
+func evalBGREWRITEAOF(args []string) []byte {
+	DumpAllAOF()
+	return Marshal(Value{Type: STRING, Str: "OK"})
 }
