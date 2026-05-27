@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"strconv"
@@ -32,6 +33,12 @@ func EvalAndRespond(cmds RedisCmds, c io.ReadWriter) {
 			buf.Write(evalBGREWRITEAOF(cmd.Args))
 		case "INCR":
 			buf.Write(evalINCR(cmd.Args))
+		case "INFO":
+			buf.Write(evalINFO(cmd.Args))
+		case "CLIENT":
+			buf.Write(evalCLIENT(cmd.Args))
+		case "LATENCY":
+			buf.Write(evalLATENCY(cmd.Args))
 		default:
 			buf.Write(evalPING(cmd.Args))
 		}
@@ -211,4 +218,22 @@ func evalINCR(args []string) []byte {
 	obj.Value = strconv.FormatInt(i, 10)
 
 	return Marshal(Value{Type: INTEGER, Num: int(i)})
+}
+
+func evalINFO(args []string) []byte {
+	var info []byte
+	buf := bytes.NewBuffer(info)
+	buf.WriteString("# Keyspace\r\n")
+	for i := range KeyspaceStat {
+		buf.WriteString(fmt.Sprintf("db%d:keys=%d,expires=0,avg_ttl=0\r\n", i, KeyspaceStat[i]["keys"]))
+	}
+	return Marshal(Value{Type: BULK, Bulk: buf.String()})
+}
+
+func evalCLIENT(args []string) []byte {
+	return Marshal(Value{Type: STRING, Str: "OK"})
+}
+
+func evalLATENCY(args []string) []byte {
+	return Marshal(Value{Type: ARRAY, Array: make([]Value, 0)})
 }
