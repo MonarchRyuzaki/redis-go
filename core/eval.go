@@ -39,6 +39,8 @@ func EvalAndRespond(cmds RedisCmds, c io.ReadWriter) {
 			buf.Write(evalCLIENT(cmd.Args))
 		case "LATENCY":
 			buf.Write(evalLATENCY(cmd.Args))
+		case "LRU":
+			buf.Write(evalLRU(cmd.Args))
 		default:
 			buf.Write(evalPING(cmd.Args))
 		}
@@ -105,7 +107,7 @@ func evalGET(args []string) []byte {
 		return Marshal(Value{Type: NULL_BULK})
 	}
 
-	if obj.ExpiresAt != -1 && obj.ExpiresAt <= time.Now().UnixMilli() {
+	if hasExpired(obj) {
 		return Marshal(Value{Type: NULL_BULK})
 	}
 
@@ -135,17 +137,20 @@ func evalTTL(args []string) []byte {
 		return Marshal(Value{Type: INTEGER, Num: -2})
 	}
 
-	if obj.ExpiresAt == -1 {
+	exp, isExpirySet := getExpiry(obj)
+	if !isExpirySet {
 		return Marshal(Value{Type: INTEGER, Num: -1})
 
 	}
 
-	durationMs := obj.ExpiresAt - time.Now().UnixMilli()
-
-	if durationMs < 0 {
+	if exp < uint64(time.Now().UnixMilli()) {
 		return Marshal(Value{Type: INTEGER, Num: -2})
 
 	}
+
+	// compute the time remaining for the key to expire and
+	// return the RESP encoded form of it
+	durationMs := exp - uint64(time.Now().UnixMilli())
 
 	return Marshal(Value{Type: INTEGER, Num: int(durationMs / 1000)})
 
@@ -181,7 +186,7 @@ func evalEXPIRE(args []string) []byte {
 
 	}
 
-	obj.ExpiresAt = time.Now().UnixMilli() + exDurationSec*1000
+	setExpiry(obj, exDurationSec*1000)
 
 	// 1 if the timeout was set.
 	return Marshal(Value{Type: INTEGER, Num: 1})
@@ -236,4 +241,9 @@ func evalCLIENT(args []string) []byte {
 
 func evalLATENCY(args []string) []byte {
 	return Marshal(Value{Type: ARRAY, Array: make([]Value, 0)})
+}
+
+func evalLRU(args []string) []byte {
+	evictAllKeysLRU()
+	return Marshal(Value{Type: STRING, Str: "OK"})
 }
