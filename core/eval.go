@@ -41,6 +41,8 @@ func EvalAndRespond(cmds RedisCmds, c io.ReadWriter) {
 			buf.Write(evalLATENCY(cmd.Args))
 		case "LRU":
 			buf.Write(evalLRU(cmd.Args))
+		case "SLEEP":
+			buf.Write(evalSLEEP(cmd.Args))
 		default:
 			buf.Write(evalPING(cmd.Args))
 		}
@@ -245,5 +247,18 @@ func evalLATENCY(args []string) []byte {
 
 func evalLRU(args []string) []byte {
 	evictAllKeysLRU()
+	return Marshal(Value{Type: STRING, Str: "OK"})
+}
+
+func evalSLEEP(args []string) []byte {
+	if len(args) != 1 {
+		return Marshal(Value{Type: ERROR, Str: "ERR wrong number of arguments for 'SLEEP' command"})
+	}
+
+	durationSec, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return Marshal(Value{Type: ERROR, Str: "ERR value is not an integer or out of range"})
+	}
+	time.Sleep(time.Duration(durationSec) * time.Second)
 	return Marshal(Value{Type: STRING, Str: "OK"})
 }
