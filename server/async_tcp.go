@@ -27,16 +27,20 @@ func WaitForSignal(wg *sync.WaitGroup, sigs chan os.Signal) {
 	defer wg.Done()
 	<-sigs
 
-	// if server is busy continue to wait
-	for atomic.LoadInt32(&eStatus) == EngineStatus_BUSY {
+	// Wait for the engine to be in WAITING state and atomically
+	// transition it to SHUTTING_DOWN to prevent race conditions.
+	// If it's already SHUTTING_DOWN, we can just proceed.
+	for {
+		status := atomic.LoadInt32(&eStatus)
+		if status == EngineStatus_SHUTTING_DOWN {
+			break
+		}
+		if status == EngineStatus_WAITING {
+			if atomic.CompareAndSwapInt32(&eStatus, EngineStatus_WAITING, EngineStatus_SHUTTING_DOWN) {
+				break
+			}
+		}
 	}
-	// CRITICAL TO HANDLE
-	// We do not want server to ever go back to BUSY state
-	// when control flow is here ->
-
-	// immediately set the status to be SHUTTING DOWN
-	// the only place where we can set the status to be SHUTTING DOWN
-	atomic.StoreInt32(&eStatus, EngineStatus_SHUTTING_DOWN)
 
 	// if server is in any other state, initiate a shutdown
 	core.Shutdown()
