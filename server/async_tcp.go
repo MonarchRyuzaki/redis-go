@@ -13,15 +13,21 @@ import (
 	"github.com/MonarchRyuzaki/redis-go/core"
 )
 
-var con_clients int = 0
 var cronFrequency time.Duration = 1 * time.Second
 var lastCronExecTime time.Time = time.Now()
 
 const EngineStatus_WAITING int32 = 1 << 1
 const EngineStatus_BUSY int32 = 1 << 2
 const EngineStatus_SHUTTING_DOWN int32 = 1 << 3
+const EngineStatus_TRANSACTION int32 = 1 << 4
 
 var eStatus int32 = EngineStatus_WAITING
+
+var connectedClients map[int]*core.Client
+
+func init() {
+	connectedClients = make(map[int]*core.Client)
+}
 
 func WaitForSignal(wg *sync.WaitGroup, sigs chan os.Signal) {
 	defer wg.Done()
@@ -151,7 +157,7 @@ func RunASyncTCPServer(wg *sync.WaitGroup) error {
 				}
 
 				// increase the number of concurrent clients count
-				con_clients++
+				connectedClients[fd] = core.NewClient(fd)
 				syscall.SetNonblock(fd, true)
 
 				// add this new tcp connection to be monitored
@@ -165,12 +171,15 @@ func RunASyncTCPServer(wg *sync.WaitGroup) error {
 				}
 			} else {
 				var fd int = int(events[i].Fd)
-				comm := core.FDComm{Fd: fd}
+				comm := connectedClients[int(events[i].Fd)]
+				if comm == nil {
+					continue
+				}
 				cmd, err := readCommand(comm)
 				if err != nil {
 					syscall.EpollCtl(epollFD, syscall.EPOLL_CTL_DEL, fd, nil)
 					syscall.Close(fd)
-					con_clients -= 1
+					delete(connectedClients, int(events[i].Fd))
 					continue
 				}
 				respond(cmd, comm)
